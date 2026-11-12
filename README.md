@@ -7,12 +7,13 @@ LYNX MCP connects an MCP client to [LYNX SHARE](https://github.com/Ka1-S/LYNX-SH
 | Workflow | What you can do |
 | --- | --- |
 | Compose | Create projects and MIDI, add instruments and notes, and place patterns in the Playlist |
-| Edit | Read patterns and clips, change tempo and routing, and update mixer settings and existing automation |
-| Export | Render WAV, FLAC, and OGG, export a mixer insert, or convert to FL Studio and Ableton Live |
+| Edit | Read patterns and clips, change tempo and routing, and update mixer settings and existing automation, inspect arrangements, set loops, and relink samples |
+| Export | Render WAV, FLAC, and OGG, export mixer stems, transcribe audio to notes, or convert to FL Studio and Ableton Live |
 | Control live | Send transport, mixer, channel, sequencer, and instrument commands through a MIDI loopback port |
-| Diagnose | List audio devices, test a trusted plugin, and capture LYNX interface snapshots |
+| Review audio | Play a short WAV excerpt and measure peak, RMS, near silence, full-scale samples, and stereo correlation |
+| Diagnose | List audio devices, scan or test trusted plugins, check audio outputs, and capture LYNX interface snapshots |
 
-The server exposes **24 tools**. Detailed arrangement edits write a new project file beside the source so relative sample paths stay valid. Live commands require a configured MIDI loopback and report message delivery to Windows.
+The server exposes **50 tools**. Detailed arrangement edits write a new project file beside the source so relative sample paths stay valid. Live commands require a configured MIDI loopback and report message delivery to Windows.
 
 ## Quick start
 
@@ -23,4 +24,3 @@ Install Node.js 20+ and LYNX SHARE, extract the [Windows release](../../releases
 Run `./build.ps1` in PowerShell with Zig 0.14.1 on PATH. The Windows x64 package is written to `dist/`. The vendored CLAP headers include their [upstream license](third_party/clap/LICENSE).
 
 Made by **Localrcc**.
-

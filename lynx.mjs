@@ -85,9 +85,14 @@ async function newFolder(outputPath, produce, expected) {
 async function report(makeReport) {
   return temporary(async dir => {
     const file = path.join(dir, 'report.txt');
-    await makeReport(file);
-    const data = await readFile(file, 'utf8');
-    return { report: data.slice(0, 24000), truncated: data.length > 24000 };
+    let failure;
+    try {
+      await makeReport(file);
+    } catch (error) {
+      failure = error;
+    }
+    const data = await readFile(file, 'utf8').catch(error => { throw failure ?? error; });
+    return { report: data.slice(0, 24000), truncated: data.length > 24000, ...(failure ? { exitCode: failure.code } : {}) };
   });
 }
 
@@ -149,6 +154,58 @@ export const lynx = {
     object({ output }), args => newFile(args.output, ['.lynx'], out => command('--showcase', out))],
   lynx_audio_devices: ['List LYNX audio drivers and devices', object({}),
     () => report(file => command('--devices', file))],
+  lynx_separate_audio_stems: ['Split an audio file into source stems using LYNX’s installed separation model',
+    object({ audio: string, output }), async args => {
+      const audio = await input(args.audio, ['.wav', '.flac', '.ogg', '.mp3', '.aif', '.aiff']);
+      return newFolder(args.output, async dir => {
+        const destination = path.join(dir, 'stems');
+        await mkdir(destination);
+        try {
+          await command('--stemsplit', audio, destination);
+        } catch (error) {
+          const diagnostic = await readFile(path.join(dir, 'stemsplit.txt'), 'utf8').catch(() => '');
+          if (diagnostic) throw new Error(diagnostic.trim());
+          throw error;
+        }
+      }, entry => /\.wav$/i.test(entry));
+    }],
+  lynx_self_test: ['Run LYNX’s built-in diagnostic suite and return its report',
+    object({ project }, []), async args => {
+      const files = args.project ? [await input(args.project, ['.lynx'])] : [];
+      return report(out => command('--selftest', out, ...files));
+    }],
+  lynx_export_stems: ['Export routed mixer inserts to separate WAV files in a new folder',
+    object({ project, output }), async args => {
+      const file = await input(args.project, convertible);
+      return newFolder(args.output, dir => command('--stems', file, path.join(dir, 'Stem.wav')),
+        entry => /\.wav$/i.test(entry));
+    }],
+  lynx_audio_to_notes: ['Transcribe audio to a CSV note list using LYNX melody, harmony or drum detection',
+    object({ audio: string, output, mode: { type: 'string', enum: ['melody', 'harmony', 'drums'] } }),
+    async args => {
+      const audio = await input(args.audio, ['.wav', '.flac', '.ogg', '.mp3', '.aiff', '.aif']);
+      return newFile(args.output, ['.csv'], out => command('--audio2midi', audio, args.mode, out));
+    }],
+  lynx_scan_plugins: ['Scan a trusted plugin directory without replacing LYNX’s plugin list',
+    object({ folder: string }), async ({ folder }) => {
+      const dir = await check(directoryPath(folder), true);
+      if (dir.includes(';')) throw new Error('Supply one folder without semicolons');
+      return report(out => command('--scantest', dir, out));
+    }],
+  lynx_test_plugin_sandbox: ['Test a trusted VST3 or CLAP in LYNX’s isolated plugin process',
+    object({ plugin: string }), async ({ plugin }) => {
+      const file = localFile(plugin, ['.vst3', '.clap']);
+      await stat(file);
+      return report(out => command('--sandboxtest', file, out));
+    }],
+  lynx_test_audio_device: ['Open the specified LYNX audio output briefly with silence and report its settings',
+    object({ driver: string, device: string, buffer: integer(16, 8192) }, ['driver', 'device']),
+    ({ driver, device, buffer }) => {
+      if ([driver, device].some(value => value.startsWith('-') || /[\r\n\0"]/.test(value)))
+        throw new Error('Use driver and device names from lynx_audio_devices');
+      return report(out => command('--devicetest', driver, device, out,
+        ...(buffer === undefined ? [] : ['--buffer', String(buffer)])));
+    }],
   lynx_test_plugin: ['Load and test a trusted VST3 or CLAP plugin with LYNX and return its report',
     object({ plugin: string }), async ({ plugin }) => {
       const file = localFile(plugin, ['.vst3', '.clap']);
@@ -161,6 +218,3 @@ export const lynx = {
       return report(out => command('--fldb', out, ...files));
     }]
 };
-
-
-

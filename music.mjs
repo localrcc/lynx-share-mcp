@@ -175,7 +175,220 @@ function midiFile(bpm, ppq, notes) {
   return Buffer.concat([header, Buffer.from(data)]);
 }
 
+async function writeProjectCopy(file, output, song) {
+  output = localFile(output, ['.lynx']);
+  if (path.dirname(file).toLowerCase() !== path.dirname(output).toLowerCase())
+    throw new Error('Save the copy beside its source to keep relative sample references');
+  await writeFile(output, JSON.stringify(song, null, 2) + '\n', { flag: 'wx' });
+  return output;
+}
+
+const page = { offset: index, limit: integer(1, 1000) };
+const metadata = object(Object.fromEntries(
+  ['title', 'author', 'genre', 'url', 'comments'].map(key => [key, { type: 'string', maxLength: 4000 }])
+), []);
+
+const filePair = { project: string, output: string };
+const sampleExtensions = ['.wav', '.flac', '.ogg', '.mp3', '.aiff', '.aif'];
+
+function copyTool(description, fields, mutate, optional = []) {
+  const properties = { ...filePair, ...fields };
+  return [description, object(properties, Object.keys(properties).filter(key => !optional.includes(key))),
+    async args => {
+      const { file, song } = await load(args.project);
+      const result = await mutate(song, args);
+      return { output: await writeProjectCopy(file, args.output, song), ...result };
+    }];
+}
+
 export const music = {
+  lynx_read_channel: ['Read a channel’s instrument, sample, routing and mix settings',
+    object({ project: string, channel: index }), async ({ project, channel }) => {
+      const { song } = await load(project);
+      const { name, instrument, sample, mixer, volume, pan, muted, colour } = at(song.channels, channel, 'Channel');
+      return { channel, name, instrument, sample, mixer, volume, pan, muted, colour };
+    }],
+  lynx_add_sample_channel: copyTool('Add a sampler channel or place an audio file on the Playlist in a saved copy',
+    { sample: string, name: label, mixer: index, placement: object({ track: index, start: tick, length }) },
+    async (song, { sample, name, mixer = 0, placement }) => {
+      sample = localFile(sample, sampleExtensions);
+      if (!(await stat(sample)).isFile()) throw new Error('Sample must be a file');
+      at(song.mixer, mixer, 'Mixer');
+      const channel = song.channels.length;
+      song.channels.push({ name, instrument: placement ? 'audioClip' : 'sampler', sample, mixer, volume: 0.8, pan: 0 });
+      if (placement) song.playlist.push([0, placement.track, placement.start, placement.length, 0, 1, channel]);
+      return { channel, clip: placement ? song.playlist.length - 1 : null };
+    }, ['mixer', 'placement']),
+  lynx_duplicate_pattern: copyTool('Duplicate a pattern, including note attributes and markers, in a project copy',
+    { pattern: index, name: label }, (song, { pattern, name }) => {
+      const source = at(song.patterns, pattern, 'Pattern');
+      const copy = structuredClone(source);
+      delete copy.uid;
+      copy.name = name;
+      song.patterns.push(copy);
+      return { pattern: song.patterns.length - 1 };
+    }),
+  lynx_transpose_pattern: copyTool('Transpose a pattern or one channel within it by semitones',
+    { pattern: index, semitones: integer(-127, 127), channel: index },
+    (song, { pattern, semitones, channel }) => {
+      if (channel !== undefined) at(song.channels, channel, 'Channel');
+      const notes = (at(song.patterns, pattern, 'Pattern').notes ?? []).filter(note => channel === undefined || note[2] === channel);
+      if (notes.some(note => note[3] + semitones < 0 || note[3] + semitones > 127))
+        throw new Error('Transposition would put a note outside MIDI pitch range');
+      for (const note of notes) note[3] += semitones;
+      return { notesChanged: notes.length };
+    }, ['channel']),
+  lynx_quantize_pattern: copyTool('Snap note starts in a pattern to a tick grid while preserving note lengths',
+    { pattern: index, grid: integer(1, 30720), strength: number(0, 1), channel: index },
+    (song, { pattern, grid, strength = 1, channel }) => {
+      if (channel !== undefined) at(song.channels, channel, 'Channel');
+      let notesChanged = 0;
+      for (const note of at(song.patterns, pattern, 'Pattern').notes ?? []) {
+        if (channel !== undefined && note[2] !== channel) continue;
+        const next = Math.round(note[0] + (Math.round(note[0] / grid) * grid - note[0]) * strength);
+        if (next !== note[0]) notesChanged++;
+        note[0] = next;
+      }
+      return { notesChanged };
+    }, ['strength', 'channel']),
+  lynx_add_markers: copyTool('Append named timeline markers to a Playlist arrangement or Piano Roll pattern',
+    { pattern: index, arrangement: index, markers: array(object({ tick, name: label }), 1000) },
+    (song, { pattern, arrangement, markers }) => {
+      if (pattern !== undefined && arrangement !== undefined) throw new Error('Select a pattern or an arrangement');
+      let destination;
+      if (pattern !== undefined) destination = at(song.patterns, pattern, 'Pattern');
+      else {
+        if (!song.arrangements?.length) song.arrangements = [{ name: 'Arrangement 1' }];
+        destination = at(song.arrangements, arrangement ?? song.currentArrangement ?? 0, 'Arrangement');
+      }
+      destination.markers ??= [];
+      destination.markers.push(...markers.map(marker => [marker.tick, marker.name, 0, 0]));
+      destination.markers.sort((a, b) => a[0] - b[0]);
+      return { markersAdded: markers.length };
+    }, ['pattern', 'arrangement']),
+  lynx_edit_audio_clip: copyTool('Set gain, fades, mute, pan, pitch, reverse or stretch for an existing audio clip',
+    { clip: index, changes: object({ fadeIn: tick, fadeOut: tick, gain: number(0, 63.1), muted: boolean,
+      pan: number(-1, 1), pitch: number(-12, 12), reversed: boolean, stretch: number(0.01, 100) }, []) },
+    (song, { clip, changes }) => {
+      const row = at(song.playlist, clip, 'Playlist clip');
+      if (row[5] !== 1) throw new Error('Select an audio clip');
+      const defaults = [0, 0, 1, false, 0, 0, 0, false, 1];
+      while (row.length < 16) row.push(defaults[row.length - 7]);
+      const columns = { fadeIn: 7, fadeOut: 8, gain: 9, muted: 10, pan: 12, pitch: 13, reversed: 14, stretch: 15 };
+      for (const [key, value] of Object.entries(changes)) row[columns[key]] = value;
+      return { clip };
+    }),
+  lynx_create_automation: copyTool('Create a mixer or channel volume/pan automation lane and optionally place it on the Playlist',
+    { name: label, target: { type: 'string', enum: ['mixerVolume', 'mixerPan', 'channelVolume', 'channelPan'] },
+      targetIndex: index, points: array(object({ tick, value: number(0, 1), curve: number(-1, 1) }, ['tick', 'value']), 10000),
+      placement: object({ track: index, start: tick, length }) },
+    (song, args) => {
+      at(args.target.startsWith('mixer') ? song.mixer : song.channels, args.targetIndex, 'Automation target');
+      if (!args.points.length) throw new Error('Provide at least one automation point');
+      const points = [...args.points].sort((a, b) => a.tick - b.tick).map(p => [p.tick, p.value, p.curve ?? 0]);
+      song.automations ??= [];
+      const lane = song.automations.length;
+      song.automations.push({ name: args.name, target: [args.target, args.targetIndex, 0, 0], points });
+      const p = args.placement;
+      if (p) song.playlist.push([0, p.track, p.start, p.length, 0, 2, lane]);
+      return { lane, clip: p ? song.playlist.length - 1 : null };
+    }, ['placement']),
+  lynx_place_automation: copyTool('Place an existing automation lane as a Playlist clip in a project copy',
+    { lane: index, track: index, start: tick, length },
+    (song, args) => {
+      at(song.automations, args.lane, 'Automation');
+      song.playlist.push([0, args.track, args.start, args.length, 0, 2, args.lane]);
+      return { clip: song.playlist.length - 1 };
+    }),
+  lynx_read_arrangement: ['Read markers, loop bounds and Playlist clips for any saved arrangement',
+    object({ project: string, arrangement: index, ...page }, ['project']),
+    async ({ project, arrangement, offset = 0, limit = 200 }) => {
+      const { song } = await load(project);
+      const current = song.currentArrangement ?? 0;
+      const i = arrangement ?? current;
+      const entry = at(song.arrangements?.length ? song.arrangements : [{ name: 'Arrangement 1' }], i, 'Arrangement');
+      const clips = (i === current ? song.playlist : entry.clips) ?? [];
+      return { index: i, name: entry.name, active: i === current, total: clips.length, offset,
+        markers: entry.markers ?? [], loop: (i === current ? song.loop : entry.loop) ?? null,
+        columns: ['pattern', 'track', 'start', 'length', 'offset', 'kind', 'reference'],
+        clips: clips.slice(offset, offset + limit) };
+    }],
+  lynx_set_loop: ['Set or clear the active arrangement loop on a saved project copy',
+    object({ project: string, output: string, start: tick, end: tick }, ['project', 'output']),
+    async ({ project, output, start, end }) => {
+      const { file, song } = await load(project);
+      if (start === undefined && end === undefined) delete song.loop;
+      else {
+        if (start === undefined || end === undefined || end <= start)
+          throw new Error('Provide start and end ticks with end greater than start');
+        song.loop = [start, end];
+      }
+      return { output: await writeProjectCopy(file, output, song), loop: song.loop ?? null };
+    }],
+  lynx_read_automation: ['Read the target and points of an automation lane in a saved LYNX project',
+    object({ project: string, lane: index, ...page }, ['project', 'lane']),
+    async ({ project, lane, offset = 0, limit = 200 }) => {
+      const { song } = await load(project);
+      const { name, target, points = [] } = at(song.automations, lane, 'Automation');
+      return { name, target, total: points.length, offset, columns: ['tick', 'value', 'curve'],
+        points: points.slice(offset, offset + limit) };
+    }],
+  lynx_read_mixer_insert: ['Read a mixer insert and its effect slots without including opaque plugin state',
+    object({ project: string, insert: index }), async ({ project, insert }) => {
+      const { song } = await load(project);
+      const { effects = [], name, volume, pan, muted, solo } = at(song.mixer, insert, 'Mixer');
+      return { insert, name, volume, pan, muted, solo, effects: effects.map((slot, index) =>
+        ({ index, name: slot.name, kind: slot.kind ?? slot.type, enabled: slot.enabled, mix: slot.mix })) };
+    }],
+  lynx_list_sample_references: ['List sample paths stored on channels and indicate whether each resolves beside the project',
+    object({ project: string, ...page }, ['project']), async ({ project, offset = 0, limit = 200 }) => {
+      const { file, song } = await load(project);
+      const samples = song.channels.flatMap((channel, index) => channel.sample ?
+        [{ index, name: channel.name, sample: channel.sample }] : []);
+      const items = await Promise.all(samples.slice(offset, offset + limit).map(async entry => ({
+        ...entry, existsAtStoredPath: await stat(path.resolve(path.dirname(file), entry.sample))
+          .then(info => info.isFile(), () => false)
+      })));
+      return { total: samples.length, offset, samples: items };
+    }],
+  lynx_relink_samples: ['Replace specified channel sample paths in a new project copy',
+    object({ project: string, output: string, replacements: array(object({ channel: index, sample: string }), 1000) }),
+    async ({ project, output, replacements }) => {
+      const { file, song } = await load(project);
+      for (const item of replacements) {
+        const channel = at(song.channels, item.channel, 'Channel');
+        if (!channel.sample) throw new Error('Channel has no sample reference: ' + item.channel);
+        const sample = localFile(item.sample, ['.wav', '.flac', '.ogg', '.mp3', '.aif', '.aiff']);
+        if (!(await stat(sample)).isFile()) throw new Error('Sample is not a file');
+        channel.sample = sample;
+      }
+      return { output: await writeProjectCopy(file, output, song), relinked: replacements.length };
+    }],
+  lynx_project_metadata: ['Read project notes or write updated title, author, genre, URL and comments to a project copy',
+    object({ project: string, output: string, info: metadata }, ['project']),
+    async ({ project, output, info }) => {
+      const { file, song } = await load(project);
+      if ((output === undefined) !== (info === undefined)) throw new Error('Provide both output and info to edit metadata');
+      if (!info) return { info: song.info ?? {} };
+      song.info = { ...song.info, ...info };
+      return { output: await writeProjectCopy(file, output, song), info: song.info };
+    }],
+  lynx_pattern_to_midi: ['Export notes from a saved pattern as standard MIDI, mapping project channels to MIDI channels',
+    object({ project: string, output: string, pattern: index, channels: array(index, 16) }),
+    async ({ project, output, pattern, channels }) => {
+      if (!channels.length || new Set(channels).size !== channels.length)
+        throw new Error('Provide 1 to 16 unique project channel indices in MIDI channel order');
+      const { song } = await load(project);
+      channels.forEach(i => at(song.channels, i, 'Channel'));
+      const { notes = [] } = at(song.patterns, pattern, 'Pattern');
+      const selected = notes.flatMap(([start, length, channel, pitch, velocity]) => {
+        const i = channels.indexOf(channel);
+        return i < 0 ? [] : [{ start, length, channel: i + 1, pitch, velocity: Math.max(0.01, Math.min(1, velocity ?? 0.8)) }];
+      });
+      const destination = localFile(output, ['.mid', '.midi']);
+      await writeFile(destination, midiFile(song.bpm, 960, selected), { flag: 'wx' });
+      return { output: destination, notes: selected.length, channels };
+    }],
   lynx_create_project: ['Create a new empty native LYNX song with a synth, Master and Pattern 1',
     object({ output: string, bpm: tempo, beatsPerBar: integer(1, 32) }, ['output']),
     async ({ output, bpm = 120, beatsPerBar = 4 }) => {
@@ -250,8 +463,3 @@ export const music = {
       return { output, notes: notes.length, bpm, ppq };
     }]
 };
-
-
-
-
-

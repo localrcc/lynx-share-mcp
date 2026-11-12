@@ -2,9 +2,10 @@ import { createInterface } from 'node:readline';
 import { music, validate } from './music.mjs';
 import { lynx } from './lynx.mjs';
 
+import { audio } from './audio.mjs';
 import { live, settings } from './live.mjs';
 
-const handlers = new Map(Object.entries({ ...lynx, ...music, ...live }));
+const handlers = new Map(Object.entries({ ...lynx, ...music, ...live, ...audio }));
 const tools = Array.from(handlers, ([name, [description, inputSchema]]) => ({ name, description, inputSchema }));
 
 async function call(name, args) {
@@ -38,13 +39,13 @@ async function receive(line) {
   if (method === 'initialize') {
     const supported = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'];
     const protocolVersion = supported.includes(params?.protocolVersion) ? params.protocolVersion : supported[0];
-    reply(id, { result: { protocolVersion, capabilities: { tools: {} }, serverInfo: { name: 'lynx-share', version: '1.0.0' } } });
+    reply(id, { result: { protocolVersion, capabilities: { tools: {} }, serverInfo: { name: 'lynx-share', version: '1.0.1' } } });
   } else if (method === 'ping' || method === 'tools/list') {
     reply(id, { result: method === 'ping' ? {} : { tools } });
   } else if (method === 'tools/call') {
     try {
       const result = await call(params?.name, params?.arguments ?? {});
-      reply(id, { result: { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] } });
+      reply(id, { result: result.content ? result : { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] } });
     } catch (error) {
       reply(id, { result: { isError: true, content: [{ type: 'text', text: error.message }] } });
     }
@@ -56,8 +57,3 @@ async function receive(line) {
 for await (const line of createInterface({ input: process.stdin, crlfDelay: Infinity })) {
   if (line.trim()) void receive(line);
 }
-
-
-
-
-
