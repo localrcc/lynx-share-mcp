@@ -43,7 +43,7 @@ export async function settings() {
 
 async function send(id, messages) {
   id ??= (await settings()).midiPort;
-  if (id === null) throw new Error('Select a MIDI output in the LYNX MCP window or provide a port.');
+  if (id === null) throw new Error('Select a MIDI output in the LYNX SHARE MCP window or provide a port.');
   const device = (await ports()).find(p => p.id === id);
   if (!device) throw new Error('MIDI output does not exist. Call lynx_midi_outputs first.');
   const packed = messages.map(([status, a, b]) => String(status | (a << 8) | (b << 16)));
@@ -53,10 +53,10 @@ async function send(id, messages) {
 
 export const live = {
   lynx_midi_outputs: ['List available Windows MIDI output ports', object({}), async () => ({ ports: await ports() })],
-  lynx_create_controller_profile: ['Create the LYNX MCP MIDI controller profile for loading in LYNX MIDI settings',
+  lynx_create_controller_profile: ['Create the LYNX SHARE MCP MIDI controller profile for loading in LYNX MIDI settings',
     object({ output: string }), async ({ output }) => {
       output = localFile(output, ['.lynxctl']);
-      const lines = ['[device]', 'name = LYNX MCP', 'maker = Localrcc', 'strips = 8', '', '[input]'];
+      const lines = ['[device]', 'name = LYNX SHARE MCP', 'maker = Localrcc', 'strips = 8', '', '[input]'];
       commands.forEach((action, i) => lines.push('note ' + i + ' ch 16 = ' + action));
       for (const [action, first] of Object.entries(continuous))
         lines.push('cc ' + first + '-' + (first + 7) + ' ch 16 = ' + action);
@@ -66,10 +66,10 @@ export const live = {
       await writeFile(output, lines.join('\n') + '\n', { flag: 'wx' });
       return { output };
     }],
-  lynx_live_transport: ['Trigger a transport action in open LYNX through a configured LYNX MCP MIDI input',
+  lynx_live_transport: ['Trigger a transport action in open LYNX through a configured LYNX SHARE MCP MIDI input',
     object({ port, action: enumeration(commands) }, ['action']),
     ({ port, action }) => send(port, noteOn(commands.indexOf(action)))],
-  lynx_live_control: ['Adjust or toggle a mixer or Channel Rack strip through the configured LYNX MCP MIDI input',
+  lynx_live_control: ['Adjust or toggle a mixer or Channel Rack strip through the configured LYNX SHARE MCP MIDI input',
     object({ port, action: enumeration([...Object.keys(continuous), ...Object.keys(toggle), 'master.volume']),
       strip, value: byte }, ['action']), ({ port, action, strip, value }) => {
       if (action === 'master.volume') {

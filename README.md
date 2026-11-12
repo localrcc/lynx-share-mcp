@@ -1,8 +1,8 @@
-<p align="center"><img src="docs/assets/banner.svg" alt="LYNX MCP · Local music tools for LYNX SHARE" width="840"></p>
+<p align="center"><img src="docs/assets/banner.svg" alt="LYNX SHARE MCP · Local music tools for LYNX SHARE" width="840"></p>
 
 <p align="center"><a href="../../releases/latest">Download for Windows x64</a> · <a href="docs/INSTALL.md">Installation guide</a> · <a href="#build-from-source">Build from source</a></p>
 
-LYNX MCP connects an MCP client to [LYNX SHARE](https://github.com/Ka1-S/LYNX-SHARE). Create a song from scratch, arrange a saved project, or bounce it to audio from your client. The optional CLAP panel lets you toggle the tools and select a MIDI output inside LYNX.
+LYNX SHARE MCP connects an MCP client to [LYNX SHARE](https://github.com/Ka1-S/LYNX-SHARE). Create a song from scratch, arrange a saved project, or bounce it to audio from your client. The optional CLAP panel lets you toggle the tools and select a MIDI output inside LYNX.
 
 | Workflow | What you can do |
 | --- | --- |

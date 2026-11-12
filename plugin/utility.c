@@ -31,13 +31,13 @@ static HBRUSH panel;
 static HFONT normal_font, title_font;
 static const char *const features[] = {CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, CLAP_PLUGIN_FEATURE_UTILITY, CLAP_PLUGIN_FEATURE_STEREO, NULL};
 static const clap_plugin_descriptor_t descriptor = {
-    CLAP_VERSION_INIT, "local.lynx.project-utility", "LYNX MCP",
+    CLAP_VERSION_INIT, "local.lynx.project-utility", "LYNX SHARE MCP",
     "Localrcc", "", "", "", "1.0.0", "Export saved LYNX projects", features
 };
 
 static const char *const generator_features[] = {CLAP_PLUGIN_FEATURE_INSTRUMENT, CLAP_PLUGIN_FEATURE_STEREO, NULL};
 static const clap_plugin_descriptor_t generator = {
-    CLAP_VERSION_INIT, "local.lynx.mcp.controller", "LYNX MCP",
+    CLAP_VERSION_INIT, "local.lynx.mcp.controller", "LYNX SHARE MCP",
     "Localrcc", "", "", "", "1.0.0", "MCP controller and project utility (silent output)", generator_features
 };
 
@@ -162,7 +162,7 @@ static LRESULT CALLBACK editor_proc(HWND window, UINT message, WPARAM w, LPARAM 
     switch (message) {
         case WM_CREATE: {
             wchar_t exe[MAX_PATH];
-            control(window, L"STATIC", L"LYNX MCP", 105, 16, 18, 600, 27, SS_CENTER);
+            control(window, L"STATIC", L"LYNX SHARE MCP", 105, 16, 18, 600, 27, SS_CENTER);
             control(window, L"BUTTON", L"Choose saved project...", 101, 212, 58, 208, 34, WS_TABSTOP | BS_OWNERDRAW);
             control(window, L"STATIC", utility->project[0] ? utility->project : L"No project selected", 102,
                     76, 103, 480, 22, SS_CENTER | SS_PATHELLIPSIS | SS_NOPREFIX);
